@@ -179,3 +179,17 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+
+# Custom
+Data
+Models
+Testing.ipynb
+
+# exclude pre-trained model from git
+yolo11n-seg.pt 
+yolo11m-seg.pt
+yolo11n.pt
+
+# yolo checkpoint dir
+runs
