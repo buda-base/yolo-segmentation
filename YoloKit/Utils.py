@@ -28,7 +28,7 @@ def get_filename(file_path: str) -> str:
 
 
 def show_image(
-    image: NDArray, cmap: str = "", axis="off", fig_x: int = 24, fix_y: int = 13
+    image: NDArray, cmap: str = "", axis="off", fig_x: int = 8, fix_y: int = 8
 ) -> None:
     plt.figure(figsize=(fig_x, fix_y))
     plt.axis(axis)
@@ -334,7 +334,7 @@ def tile_image(
     assert stride > 0, "overlap too high -> stride becomes 0"
 
     tile_id = 0
-    tiles = []
+    tiles: list[TileData] = []
 
     for y0 in range(0, y_range, stride):
         for x0 in range(0, x_range, stride):
@@ -526,7 +526,6 @@ def reproject_polygon(
     poly = tile_to_padded(poly_tile, tile)
     poly = unpad(poly, meta)
     poly = resized_to_original(poly, meta)
-    
     return poly
 
 
