@@ -5,6 +5,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import random
+import torch
 
 from glob import glob
 from natsort import natsorted
@@ -15,15 +16,16 @@ from ultralytics import YOLO
 from YoloKit.Processing.image import (
     cluster_lines,
     collect_global_line_masks,
+    collect_global_line_masks_gpu,
     contour_to_original_space,
     extract_line_images,
     mask_to_contour,
     merge_line_masks,
     resize_and_pad,
-    tile_image
+    tile_image,
 )
-from YoloKit.utils import create_dir, get_filename
-from YoloKit.data import TileData
+from YoloKit.Utils import create_dir, get_filename
+from YoloKit.Data import TileData
 
 line_parquet_scheme = {
     "image_name": str,
@@ -49,11 +51,14 @@ class YoloInference:
         pass
 
     def _post_process_cpu(
-        self, results: list, tile_data: list[TileData], image: NDArray
+        self, results: list, tile_data: list[TileData], image: torch.Tensor
     ):
         global_masks, y_centers_raw = collect_global_line_masks(
             results, tile_data, page_shape=image.shape, class_name="line"
         )
+
+        if y_centers_raw is None or len(y_centers_raw) == 0:
+            return []
 
         order = np.argsort(y_centers_raw)
         global_masks = global_masks[order]
@@ -65,9 +70,18 @@ class YoloInference:
         clusters = cluster_lines(y_centers_raw, dup_eps=8, spacing_factor=0.5)
         return merge_line_masks(global_masks, clusters)
 
-    def _post_process_gpu():
-        # TODO
-        pass
+    def _post_process_gpu(
+        self, results: list, tile_data: list[TileData], image: torch.Tensor
+    ):
+        global_masks, y_centers_raw = collect_global_line_masks_gpu(
+            results, tile_data, page_shape=image.shape, class_name="line"
+        )
+        order = torch.argsort(y_centers_raw)
+        global_masks = global_masks[order]
+        y_centers_raw = y_centers_raw[order]
+
+        if len(y_centers_raw) == 0:
+            return []
 
     def _run_prediction(self, tile_data: list[TileData]) -> tuple:
         img_tiles = [t.img for t in tile_data]

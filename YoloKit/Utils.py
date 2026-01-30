@@ -15,7 +15,7 @@ from dataclasses import asdict
 from numpy.typing import NDArray
 from pathlib import Path
 
-from YoloKit.data import InstanceRecord
+from YoloKit.Data import InstanceRecord
 
 
 def get_filename(file_path: str) -> str:
@@ -121,6 +121,7 @@ def write_parquet(records: list[InstanceRecord], out_path: str):
 
 
 # ----------- Drawing functions --------------------------
+
 
 def draw_yolo_seg_labels(
     img: NDArray,

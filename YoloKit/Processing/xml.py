@@ -8,8 +8,13 @@ from pathlib import Path
 from shapely.geometry import Polygon
 
 from YoloKit.config import COLOR_DICT, PHOTI_CLASS_MAP, SEMANTIC_TEXTREGION_MAP
-from YoloKit.Processing.image import resize_and_pad, scale_polygons, instances_to_color_mask, instances_to_mask, tile_image_and_labels
-
+from YoloKit.Processing.image import (
+    resize_and_pad,
+    scale_polygons,
+    instances_to_color_mask,
+    instances_to_mask,
+    tile_image_and_labels,
+)
 
 
 def is_pagexml_done(xml_path: str) -> bool:

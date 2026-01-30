@@ -193,3 +193,4 @@ yolo11n.pt
 
 # yolo checkpoint dir
 runs
+.DS_Store

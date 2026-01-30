@@ -1,15 +1,15 @@
-
 import cv2
 import os
 import math
+import torch
 
 import numpy as np
 from numpy.typing import NDArray
 from pathlib import Path
 from shapely.geometry import Polygon, box
 
-from YoloKit.config import COLOR_DICT, PHOTI_CLASS_MAP
-from YoloKit.data import TileData, ResizePadData
+from YoloKit.Config import COLOR_DICT, PHOTI_CLASS_MAP
+from YoloKit.Data import TileData, ResizePadData
 
 
 def tile_image(
@@ -50,6 +50,7 @@ def is_tile_empty(tile_mask: NDArray, min_white_ratio: float = 0.01) -> bool:
     white_ratio = np.count_nonzero(white) / white.size
 
     return bool(white_ratio < min_white_ratio)
+
 
 def resize_and_pad(
     img_name: str,
@@ -433,7 +434,10 @@ def sort_by_y(global_masks, y_centers):
     order = np.argsort(y_centers)
     return global_masks[order], y_centers[order]
 
-def collect_global_line_masks(results, tile_data: list[TileData], page_shape, class_name="line"):
+
+def collect_global_line_masks(
+    results, tile_data: list[TileData], page_shape, class_name="line"
+):
     H_page, W_page = page_shape[:2]
 
     global_masks = []
@@ -444,28 +448,89 @@ def collect_global_line_masks(results, tile_data: list[TileData], page_shape, cl
         if res.masks is None:
             continue
 
-        masks = res.masks.data.cpu().numpy()        # (N, h, w)
-        boxes = res.boxes.xyxy.cpu().numpy()        # (N, 4)
+        masks = res.masks.data.cpu().numpy()  # (N, h, w)
+        boxes = res.boxes.xyxy.cpu().numpy()  # (N, 4)
         classes = res.boxes.cls.cpu().numpy()
         names = res.names
 
         line_id = [k for k, v in names.items() if v == class_name][0]
         idx = np.where(classes == line_id)[0]
 
-        for i in idx:
-            tile_mask = masks[i]
-            y1, y2 = boxes[i][1], boxes[i][3]
-            y_center = (y1 + y2) / 2 + tile.y0  # global y
+        if len(idx) == 0:
+            continue
 
-            # remap into global space
-            h, w = tile_mask.shape
-            global_mask = np.zeros((H_page, W_page), dtype=np.uint8)
-            global_mask[tile.y0:tile.y0+h, tile.x0:tile.x0+w] = (tile_mask > 0.5).astype(np.uint8)
+        masks = masks[idx]  # (M, h, w)
+        boxes = boxes[idx]  # (M, 4)
 
-            global_masks.append(global_mask)
-            y_centers.append(y_center)
+        y_center = (boxes[:, 1] + boxes[:, 3]) / 2 + tile.y0
+        y_centers.append(y_center)
 
-    return np.array(global_masks), np.array(y_centers)
+        M, h, w = masks.shape
+
+        tile_global = np.zeros((M, H_page, W_page), dtype=np.uint8)
+
+        tile_global[:, tile.y0 : tile.y0 + h, tile.x0 : tile.x0 + w] = (
+            masks > 0.5
+        ).astype(np.uint8)
+
+        global_masks.append(tile_global)
+
+    if len(global_masks) == 0:
+        return None, None
+
+    global_masks = np.concatenate(global_masks, axis=0)
+    y_centers = np.concatenate(y_centers, axis=0)
+
+    return global_masks, y_centers
+
+
+def collect_global_line_masks_gpu(
+    results, tile_data, page_shape, class_name="line", device="cuda"
+):
+    H_page, W_page = page_shape[:2]
+
+    global_masks = []
+    y_centers = []
+
+    for res, tile in zip(results, tile_data):
+
+        if res.masks is None:
+            continue
+
+        masks = res.masks.data
+        boxes = res.boxes.xyxy
+        classes = res.boxes.cls
+        names = res.names
+
+        line_id = [k for k, v in names.items() if v == class_name][0]
+        class_idx = (classes == line_id).nonzero(as_tuple=True)[0]
+
+        if class_idx.numel() == 0:
+            continue
+
+        masks = masks[class_idx]
+        boxes = boxes[class_idx]
+
+        y_center = (boxes[:, 1] + boxes[:, 3]) / 2 + tile.y0
+        y_centers.append(y_center)
+
+        M, h, w = masks.shape
+
+        tile_global = torch.zeros(
+            (M, H_page, W_page), dtype=torch.bool, device=masks.device
+        )
+
+        tile_global[:, tile.y0 : tile.y0 + h, tile.x0 : tile.x0 + w] = masks > 0.5
+
+        global_masks.append(tile_global)
+
+    if len(global_masks) == 0:
+        return None, None
+
+    global_masks = torch.cat(global_masks, dim=0)
+    y_centers = torch.cat(y_centers, dim=0)
+
+    return global_masks, y_centers
 
 
 def collapse_duplicates(y_centers, eps=8):
@@ -508,7 +573,7 @@ def cluster_lines(y_centers, dup_eps=8, spacing_factor=0.5):
     current = [order[0]]
 
     for i in range(1, len(y_sorted)):
-        if (y_sorted[i] - y_sorted[i-1]) < threshold:
+        if (y_sorted[i] - y_sorted[i - 1]) < threshold:
             current.append(order[i])
         else:
             clusters.append(current)
@@ -532,9 +597,7 @@ def merge_line_masks(global_masks, clusters) -> list[NDArray]:
 
 def mask_to_contour(line_mask: NDArray):
     cnts, _ = cv2.findContours(
-        line_mask.astype(np.uint8),
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_NONE
+        line_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
     )
     contour = np.vstack([c.squeeze() for c in cnts])
     return contour
@@ -552,7 +615,9 @@ def contour_to_original_space(contour_padded, meta: ResizePadData):
     return contour_orig
 
 
-def extract_line_images(page_img: NDArray, merged_masks: list[NDArray], background: str = "white"):
+def extract_line_images(
+    page_img: NDArray, merged_masks: list[NDArray], background: str = "white"
+):
     line_images = []
 
     if background == "white":
@@ -570,10 +635,10 @@ def extract_line_images(page_img: NDArray, merged_masks: list[NDArray], backgrou
         y_min, y_max = ys.min(), ys.max()
         x_min, x_max = xs.min(), xs.max()
 
-        crop_img = page_img[y_min:y_max+1, x_min:x_max+1]
-        crop_mask = mask[y_min:y_max+1, x_min:x_max+1]
+        crop_img = page_img[y_min : y_max + 1, x_min : x_max + 1]
+        crop_mask = mask[y_min : y_max + 1, x_min : x_max + 1]
 
-        #ocr_line = crop_img * crop_mask[..., None]
+        # ocr_line = crop_img * crop_mask[..., None]
         ocr_line = crop_img.copy()
         ocr_line[crop_mask == 0] = bg_value
         line_images.append(ocr_line)
