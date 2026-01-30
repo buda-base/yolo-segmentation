@@ -5,8 +5,8 @@ from pathlib import Path
 from natsort import natsorted
 from tqdm import tqdm
 
-from YoloKit.Config import PHOTI_CLASS_MAP
-from YoloKit.Utils import (
+from YoloKit.config import PHOTI_CLASS_MAP
+from YoloKit.utils import (
     is_pagexml_done,
     process_page,
     split_dataset,

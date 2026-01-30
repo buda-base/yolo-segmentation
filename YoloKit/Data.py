@@ -5,6 +5,7 @@ from shapely.geometry import Polygon
 
 @dataclass
 class ResizePadData:
+    img_name: str
     orig_w: int
     orig_h: int
     scale: float
