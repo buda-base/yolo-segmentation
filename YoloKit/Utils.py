@@ -1,4 +1,5 @@
 import os
+from typing import Mapping
 import cv2
 
 import matplotlib.pyplot as plt
@@ -20,7 +21,7 @@ from itertools import chain
 from numpy.typing import NDArray
 from pathlib import Path
 from uuid import uuid1
-from YoloKit.data import BBox, InstanceRecord, Line
+from YoloKit.Data import InstanceRecord
 
 
 def get_utc_time():
@@ -133,15 +134,19 @@ def split_dataset(root: str | Path, val_ratio: float = 0.1):
         shutil.move(lbl_path, val_lbl / lbl_path.name)
 
 
-def write_yolo_yaml(dataset_root: str, class_map, yaml_path: str | None = None):
-    dataset_root = Path(dataset_root).resolve()
+def write_yolo_yaml(
+    dataset_root: str,
+    class_map: Mapping[str, int],
+    yaml_path: str | None = None,
+) -> None:
+    dataset_path = Path(dataset_root).resolve()
 
     if yaml_path is None:
-        yaml_path = dataset_root / "dataset.yaml"
+        yaml_file = dataset_path / "dataset.yaml"
     else:
-        yaml_path = Path(yaml_path)
+        yaml_file = Path(yaml_path)
 
-    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_file.parent.mkdir(parents=True, exist_ok=True)
 
     names = {int(v): k.lower() for k, v in class_map.items()}
 
@@ -151,7 +156,7 @@ def write_yolo_yaml(dataset_root: str, class_map, yaml_path: str | None = None):
         "names": names,
     }
 
-    with open(yaml_path, "w") as f:
+    with yaml_file.open("w") as f:
         yaml.dump(data, f, sort_keys=False)
 
 
@@ -162,8 +167,6 @@ def write_parquet(records: list[InstanceRecord], out_path: str):
 
 
 # ----------- Drawing functions --------------------------
-
-
 def draw_yolo_seg_labels(
     img: NDArray,
     label_path: str,

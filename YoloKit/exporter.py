@@ -1,12 +1,12 @@
 import cv2
 import logging
-import xml.etree.ElementTree as etree  # nosec B405
+import xml.etree.ElementTree as etree
 
 from abc import abstractmethod
 from numpy.typing import NDArray
 from xml.dom import minidom
 from YoloKit.Utils import get_utc_time
-from YoloKit.data import BBox, Line
+from YoloKit.Data import BBox
 
 class Exporter:
     """
@@ -34,7 +34,7 @@ class Exporter:
     @abstractmethod
     def export_lines(
         self,
-        image: NDArray | None,
+        image: NDArray,
         image_name: str,
         lines: list[NDArray]
     ):
@@ -42,11 +42,11 @@ class Exporter:
         raise NotImplementedError
 
 
-    def get_bbox(self, contour: NDArray) -> tuple[int, int, int, int]:
+    def get_bbox(self, contour: NDArray) -> BBox:
         x, y, w, h = cv2.boundingRect(contour)
 
         if x == 0 or y == 0 or w == 0 or h == 0:
-            print(f"warning: zero bbox")
+            print("warning: zero bbox")
         return BBox(x, y, w, h)
     
     def get_text_bbox(self, lines: list[NDArray]):
@@ -193,13 +193,13 @@ class PageXMLExporter(Exporter):
             )
 
         parsed_xml = minidom.parseString(etree.tostring(root))
-        parsed_xml = parsed_xml.toprettyxml()
+        parsed_doc_str = parsed_xml.toprettyxml()
 
-        return parsed_xml
+        return parsed_doc_str
 
     def export_lines(
         self,
-        image: NDArray | None,
+        image: NDArray,
         image_name: str,
         lines: list[NDArray],
         use_bbox: bool = False

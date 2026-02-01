@@ -7,7 +7,8 @@ from numpy.typing import NDArray
 from pathlib import Path
 from shapely.geometry import Polygon
 
-from YoloKit.config import COLOR_DICT, PHOTI_CLASS_MAP, SEMANTIC_TEXTREGION_MAP
+from YoloKit.Utils import get_filename
+from YoloKit.Config import COLOR_DICT, SEMANTIC_TEXTREGION_MAP
 from YoloKit.Processing.image import (
     resize_and_pad,
     scale_polygons,
@@ -134,6 +135,7 @@ def process_xml_data(
         return
 
     base = Path(xml_path).stem
+    img_name = get_filename(img_path)
     img = cv2.imread(str(img_path))
 
     if img is None:
@@ -144,6 +146,7 @@ def process_xml_data(
     snap_threshold_px = int(tile_size * snap_threshold)
 
     img_padded, meta = resize_and_pad(
+        img_name,
         img,
         max_w=target_width,
         max_h=max_patch_rows,

@@ -1,6 +1,5 @@
 import os
 import cv2
-from itertools import chain
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -8,11 +7,9 @@ import pyarrow.parquet as pq
 import random
 import torch
 
-from glob import glob
-from natsort import natsorted
-
 from numpy.typing import NDArray
 from tqdm import tqdm
+from typing import Any, Sequence
 from ultralytics import YOLO
 from YoloKit.Processing.image import (
     cluster_lines,
@@ -26,8 +23,8 @@ from YoloKit.Processing.image import (
     resize_and_pad,
     tile_image,
 )
-from YoloKit.Utils import create_dir, generate_guid, get_directory_images, get_filename
-from YoloKit.data import BBox, Line, TileData
+from YoloKit.Utils import create_dir, get_directory_images, get_filename
+from YoloKit.Data import TileData
 from YoloKit.exporter import PageXMLExporter
 
 line_parquet_scheme = {
@@ -45,16 +42,22 @@ class YoloInference:
     def __init__(self, model_checkpoint: str, task: str = "segment"):
         self.model = YOLO(model_checkpoint, task=task)
 
+    def _read_image(self, image_path: str):
+        img = cv2.imread(image_path)
+        if img is None:
+            raise ValueError(f"Could not read image: {image_path}")
+
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        return img
+    
     def _has_results(self, results) -> bool:
         return (
             results is not None and len(results) > 0
         )  # revise this to check for actual mask objects
 
-    def _preprocess_image_cpu(image_path: str) -> tuple[str, NDArray]:
-        pass
-
     def _post_process_cpu(
-        self, results: list, tile_data: list[TileData], image: NDArray
+        self, results: Sequence[Any], tile_data: list[TileData], image: NDArray
     ):
         global_masks, y_centers_raw = collect_global_line_masks(
             results, tile_data, page_shape=image.shape, class_name="line"
@@ -74,7 +77,7 @@ class YoloInference:
         return merge_line_masks(global_masks, clusters)
 
     def _post_process_gpu(
-        self, results: list, tile_data: list[TileData], image: torch.Tensor
+        self, results: tuple, tile_data: list[TileData], image: torch.Tensor
     ):
         global_masks, y_centers_raw = collect_global_line_masks_gpu(
             results, tile_data, page_shape=image.shape, class_name="line"
@@ -86,15 +89,14 @@ class YoloInference:
         if len(y_centers_raw) == 0:
             return []
 
-    def _run_prediction(self, tile_data: list[TileData]) -> tuple:
+    def _run_prediction(self, tile_data: list[TileData]) -> list:
         img_tiles = [t.img for t in tile_data]
         return self.model(img_tiles, verbose=False)
 
     def _prediction_to_parquet(
         self, image_name: str, image_path: str, post_process_mode: str = "cpu"
     ):
-        img = cv2.imread(image_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = self._read_image(image_path)
         img_padded, meta = resize_and_pad(image_name, img)
 
         tile_data = tile_image(img_padded, overlap=0.2)
@@ -102,7 +104,7 @@ class YoloInference:
 
         merged_masks = self._post_process_cpu(results, tile_data, img_padded)
 
-        records = []
+        records: list[dict] = []
 
         if len(merged_masks) == 0:
             return records
@@ -144,8 +146,7 @@ class YoloInference:
 
     def get_ocr_lines(self, image_path: str, post_process_mode: str = "cpu"):
         image_name = get_filename(image_path)
-        img = cv2.imread(image_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = self._read_image(image_path)
         img_padded, meta = resize_and_pad(image_name, img)
 
         tile_data = tile_image(img_padded, overlap=0.2)
@@ -178,8 +179,7 @@ class YoloInference:
 
     def get_line_masks(self, image_path: str) -> list:
         image_name = get_filename(image_path)
-        img = cv2.imread(image_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = self._read_image(image_path)
         img_padded, meta = resize_and_pad(image_name, img)
 
         tile_data = tile_image(img_padded, overlap=0.2)
@@ -205,8 +205,7 @@ class YoloInference:
 
         for image_path in tqdm(images, total=len(images)):
             image_name = get_filename(image_path)
-            img = cv2.imread(image_path)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = self._read_image(image_path)
             img_padded, meta = resize_and_pad(image_name, img)
 
             tile_data = tile_image(img_padded, overlap=0.2)
@@ -255,8 +254,7 @@ class YoloInference:
 
         for image_path in tqdm(images, total=len(images)):
             image_name = get_filename(image_path)
-            img = cv2.imread(image_path)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = self._read_image(image_path)
             img_padded, meta = resize_and_pad(image_name, img)
 
             tile_data = tile_image(img_padded, overlap=0.2)

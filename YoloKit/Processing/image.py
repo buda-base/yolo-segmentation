@@ -8,8 +8,10 @@ from numpy.typing import NDArray
 from pathlib import Path
 from shapely.geometry import Polygon, box
 
-from YoloKit.config import COLOR_DICT, PHOTI_CLASS_MAP
-from YoloKit.data import TileData, ResizePadData
+from shapely.geometry import MultiPolygon
+from shapely.geometry.base import BaseGeometry
+from YoloKit.Config import COLOR_DICT, PHOTI_CLASS_MAP
+from YoloKit.Data import TileData, ResizePadData
 
 
 def tile_image(
@@ -165,20 +167,19 @@ def tile_image_and_labels(
 
             with open(lbl_path, "w", encoding="utf8") as f:
                 for cid, poly in instances:
-                    inter = poly.intersection(tile_box)
+                    inter: BaseGeometry = poly.intersection(tile_box)
                     if inter.is_empty:
                         continue
 
                     # flatten polygons
-                    geoms = (
-                        [inter]
-                        if inter.geom_type == "Polygon"
-                        else (
-                            list(inter.geoms)
-                            if inter.geom_type == "MultiPolygon"
-                            else []
-                        )
-                    )
+                    geoms: list[Polygon]
+                    if isinstance(inter, Polygon):
+                        geoms = [inter]
+                    elif isinstance(inter, MultiPolygon):
+                        geoms = list(inter.geoms)
+                    else:
+                        geoms = []
+
                     for g in geoms:
                         coords = []
                         for x, y in np.array(g.exterior.coords):
@@ -467,8 +468,8 @@ def collect_global_line_masks(
 ):
     H_page, W_page = page_shape[:2]
 
-    global_masks = []
-    y_centers = []
+    global_masks_list: list[NDArray] = []
+    y_centers_list: list[NDArray] = []
 
     for res, tile in zip(results, tile_data):
 
@@ -486,27 +487,26 @@ def collect_global_line_masks(
         if len(idx) == 0:
             continue
 
-        masks = masks[idx]  # (M, h, w)
-        boxes = boxes[idx]  # (M, 4)
+        masks = masks[idx]
+        boxes = boxes[idx]
 
         y_center = (boxes[:, 1] + boxes[:, 3]) / 2 + tile.y0
-        y_centers.append(y_center)
+        y_centers_list.append(y_center)
 
         M, h, w = masks.shape
 
         tile_global = np.zeros((M, H_page, W_page), dtype=np.uint8)
-
         tile_global[:, tile.y0 : tile.y0 + h, tile.x0 : tile.x0 + w] = (
             masks > 0.5
         ).astype(np.uint8)
 
-        global_masks.append(tile_global)
+        global_masks_list.append(tile_global)
 
-    if len(global_masks) == 0:
+    if len(global_masks_list) == 0:
         return None, None
 
-    global_masks = np.concatenate(global_masks, axis=0)
-    y_centers = np.concatenate(y_centers, axis=0)
+    global_masks = np.concatenate(global_masks_list, axis=0)
+    y_centers = np.concatenate(y_centers_list, axis=0)
 
     return global_masks, y_centers
 
