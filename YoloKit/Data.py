@@ -1,7 +1,26 @@
 from dataclasses import dataclass
 from numpy.typing import NDArray
 from shapely.geometry import Polygon
+from uuid import UUID
 
+
+@dataclass
+class BBox:
+    """Bounding box coordinates for rectangular regions."""
+
+    x: int
+    y: int
+    w: int
+    h: int
+
+@dataclass
+class Line:
+    """Detected text line with contour and bounding box information."""
+
+    guid: UUID
+    contour: NDArray
+    bbox: BBox
+    center: tuple[int, int]
 
 @dataclass
 class ResizePadData:

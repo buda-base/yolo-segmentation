@@ -1,5 +1,6 @@
 import os
 import cv2
+from itertools import chain
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -20,12 +21,14 @@ from YoloKit.Processing.image import (
     contour_to_original_space,
     extract_line_images,
     mask_to_contour,
+    mask_to_contours,
     merge_line_masks,
     resize_and_pad,
     tile_image,
 )
-from YoloKit.Utils import create_dir, get_filename
-from YoloKit.Data import TileData
+from YoloKit.Utils import create_dir, generate_guid, get_directory_images, get_filename
+from YoloKit.data import BBox, Line, TileData
+from YoloKit.exporter import PageXMLExporter
 
 line_parquet_scheme = {
     "image_name": str,
@@ -51,7 +54,7 @@ class YoloInference:
         pass
 
     def _post_process_cpu(
-        self, results: list, tile_data: list[TileData], image: torch.Tensor
+        self, results: list, tile_data: list[TileData], image: NDArray
     ):
         global_masks, y_centers_raw = collect_global_line_masks(
             results, tile_data, page_shape=image.shape, class_name="line"
@@ -97,7 +100,7 @@ class YoloInference:
         tile_data = tile_image(img_padded, overlap=0.2)
         results = self._run_prediction(tile_data)
 
-        merged_masks = self._post_process_cpu(results, tile_data)
+        merged_masks = self._post_process_cpu(results, tile_data, img_padded)
 
         records = []
 
@@ -149,7 +152,7 @@ class YoloInference:
         results = self._run_prediction(tile_data)
 
         # TODO: handle cpu and gpu post_process_mode
-        merged_masks = self._post_process_cpu(results, tile_data)
+        merged_masks = self._post_process_cpu(results, tile_data, img_padded)
 
         if len(merged_masks) == 0:
             return []
@@ -159,7 +162,7 @@ class YoloInference:
         return ocr_lines
 
     def generate_parquet_data(self, directory: str, out_dir: str):
-        images = natsorted(glob(f"{directory}/*.jpg"))
+        images = get_directory_images(directory)
 
         if not os.path.isdir(out_dir):
             create_dir(out_dir)
@@ -173,10 +176,22 @@ class YoloInference:
                 out_file = f"{out_dir}/{image_name}.parquet"
                 pq.write_table(pa.Table.from_pandas(df), out_file)
 
-    def generate_debug_output(self, directory: str, out_dir: str, alpha: float = 0.4):
-        images = natsorted(glob(f"{directory}/*.jpg"))
+    def get_line_masks(self, image_path: str) -> list:
+        image_name = get_filename(image_path)
+        img = cv2.imread(image_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_padded, meta = resize_and_pad(image_name, img)
 
+        tile_data = tile_image(img_padded, overlap=0.2)
+        results = self._run_prediction(tile_data)
+
+        # TODO: handle cpu and gpu post_process_mode
+        return self._post_process_cpu(results, tile_data, img_padded)
+
+    def generate_debug_output(self, directory: str, out_dir: str, alpha: float = 0.4):
+        images = get_directory_images(directory)
         cached_colors = []
+
         for i in range(40):
             color = [
                 random.randint(0, 255),
@@ -223,3 +238,36 @@ class YoloInference:
 
             out_file = f"{out_dir}/{image_name}_prev.jpg"
             cv2.imwrite(out_file, preview_img)
+
+        
+    def generate_page_xmL(self, directory: str, out_dir: str):
+
+        if not os.path.isdir(out_dir):
+            create_dir(out_dir)
+
+        images = get_directory_images(directory)
+
+        if len(images) == 0:
+            print("Warning: No images Found")
+            return
+
+        page_xml_exporter = PageXMLExporter(out_dir)
+
+        for image_path in tqdm(images, total=len(images)):
+            image_name = get_filename(image_path)
+            img = cv2.imread(image_path)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img_padded, meta = resize_and_pad(image_name, img)
+
+            tile_data = tile_image(img_padded, overlap=0.2)
+            results = self._run_prediction(tile_data)
+
+            merged_masks = self._post_process_cpu(results, tile_data, img_padded)
+            contours = [mask_to_contours(x, optimize=False) for x in merged_masks]
+            flat_contours = [c for line in contours for c in line]
+
+            if len(flat_contours) == 0:
+                print(f"Warning, no contours in: {image_name}")
+                continue
+            
+            page_xml_exporter.export_lines(img, image_name, flat_contours)

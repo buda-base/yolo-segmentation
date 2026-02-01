@@ -6,9 +6,12 @@ from natsort import natsorted
 from tqdm import tqdm
 
 from YoloKit.config import PHOTI_CLASS_MAP
-from YoloKit.utils import (
+from YoloKit.Processing.xml import (
     is_pagexml_done,
-    process_page,
+    process_xml_data
+)
+
+from YoloKit.Utils import (
     split_dataset,
     write_yolo_yaml
 )
@@ -109,7 +112,7 @@ def main():
         if not is_pagexml_done(xml):
             continue
 
-        process_page(
+        process_xml_data(
             xml_path=xml,
             img_path=img,
             output_path=str(output_path),

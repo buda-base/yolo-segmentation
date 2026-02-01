@@ -1,5 +1,6 @@
 import os
 import cv2
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -12,16 +13,56 @@ import yaml
 
 
 from dataclasses import asdict
+from datetime import datetime
+from glob import glob
+from natsort import natsorted
+from itertools import chain
 from numpy.typing import NDArray
 from pathlib import Path
+from uuid import uuid1
+from YoloKit.data import BBox, InstanceRecord, Line
 
-from YoloKit.Data import InstanceRecord
+
+def get_utc_time():
+    """
+    Get current UTC time as a formatted string.
+
+    Returns:
+        Current UTC time in ISO format (YYYY-MM-DDTHH:MM:SS)
+    """
+    utc_time = datetime.now()
+    utc_time = utc_time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    return utc_time
+
+
+def generate_guid(clock_seq: int):
+    """
+    Generate a UUID with a specific clock sequence.
+    
+    Args:
+        clock_seq: Clock sequence value for UUID generation
+        
+    Returns:
+        Generated UUID
+    """
+    return uuid1(clock_seq=clock_seq)
+
 
 
 def get_filename(file_path: str) -> str:
     name_segments = os.path.basename(file_path).split(".")[:-1]
     name = "".join(f"{x}." for x in name_segments)
     return name.rstrip(".")
+
+
+def get_directory_images(file_path: str) -> list[str]:
+    exts = ["jpg", "jpeg", "png", "tif", "tiff"]
+    images = natsorted(
+        chain.from_iterable(glob(f"{file_path}/*.{ext}") for ext in exts)
+    )
+
+    return images
 
 
 def create_dir(dir_path: str) -> None:

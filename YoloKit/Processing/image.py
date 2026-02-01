@@ -8,8 +8,8 @@ from numpy.typing import NDArray
 from pathlib import Path
 from shapely.geometry import Polygon, box
 
-from YoloKit.Config import COLOR_DICT, PHOTI_CLASS_MAP
-from YoloKit.Data import TileData, ResizePadData
+from YoloKit.config import COLOR_DICT, PHOTI_CLASS_MAP
+from YoloKit.data import TileData, ResizePadData
 
 
 def tile_image(
@@ -379,6 +379,33 @@ def mask_to_polygons(
     return polygons
 
 
+def masks_to_contours(merged_masks: list[NDArray]):
+    """
+    merged_masks: list[H×W] or (M, H, W)
+    returns: list[np.ndarray] contours (N_i, 2)
+    """
+    contours = []
+
+    for mask in merged_masks:
+        mask_u8 = (mask > 0).astype(np.uint8) * 255
+
+        cnts, _ = cv2.findContours(
+            mask_u8,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_NONE
+        )
+
+        if len(cnts) == 0:
+            continue
+
+        # take largest connected component
+        contour = max(cnts, key=cv2.contourArea)
+        contour = contour.squeeze(1)  # (N, 2)
+
+        contours.append(contour)
+
+    return contours
+
 def tile_to_padded(poly, tile: TileData):
     return [(x + tile.x0, y + tile.y0) for x, y in poly]
 
@@ -594,13 +621,35 @@ def merge_line_masks(global_masks, clusters) -> list[NDArray]:
 
     return merged
 
+def optimize_contour(contour, eps: float = 2.0):
+    return cv2.approxPolyDP(contour, eps, True)
 
-def mask_to_contour(line_mask: NDArray):
+
+def mask_to_contour(line_mask: NDArray, optimize: bool = False, eps: float = 2.0):
     cnts, _ = cv2.findContours(
         line_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
     )
+    
+    if optimize:
+        cnts = [optimize_contour(x, eps) for x in cnts]
+
     contour = np.vstack([c.squeeze() for c in cnts])
     return contour
+
+
+def mask_to_contours(line_mask: np.ndarray, optimize=False, eps=2.0):
+    cnts, _ = cv2.findContours(
+        line_mask.astype(np.uint8),
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_NONE
+    )
+
+    if optimize:
+        cnts = [optimize_contour(c, eps) for c in cnts]
+
+    # return list of (N_i, 2)
+    contours = [c.squeeze(1) for c in cnts if c.shape[0] >= 3]
+    return contours
 
 
 def contour_to_original_space(contour_padded, meta: ResizePadData):
