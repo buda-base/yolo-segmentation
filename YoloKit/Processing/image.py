@@ -560,7 +560,7 @@ def collect_global_line_masks_gpu(
     return global_masks, y_centers
 
 
-def collapse_duplicates(y_centers, eps=8):
+def collapse_duplicates(y_centers, eps: int =  4):
     """
     Collapses multiple detections of the same line into one.
     """
@@ -576,7 +576,7 @@ def collapse_duplicates(y_centers, eps=8):
     return np.array(collapsed)
 
 
-def cluster_lines(y_centers, dup_eps=8, spacing_factor=0.5):
+def cluster_lines(y_centers, dup_eps=8, spacing_factor=0.4):
     y_centers = np.array(y_centers)
 
     # 1. collapse duplicates
@@ -652,7 +652,7 @@ def mask_to_contours(line_mask: np.ndarray, optimize=False, eps=2.0):
     return contours
 
 
-def contour_to_original_space(contour_padded, meta: ResizePadData):
+def contour_to_original_space(contour_padded: NDArray, meta: ResizePadData) -> NDArray:
     """
     contour_padded: (N,2) in padded-resized space
     meta: ResizePadData

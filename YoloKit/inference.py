@@ -73,7 +73,7 @@ class YoloInference:
         if len(y_centers_raw) == 0:
             return []
 
-        clusters = cluster_lines(y_centers_raw, dup_eps=8, spacing_factor=0.5)
+        clusters = cluster_lines(y_centers_raw, dup_eps=12, spacing_factor=0.5)
         return merge_line_masks(global_masks, clusters)
 
     def _post_process_gpu(
@@ -177,7 +177,7 @@ class YoloInference:
                 out_file = f"{out_dir}/{image_name}.parquet"
                 pq.write_table(pa.Table.from_pandas(df), out_file)
 
-    def get_line_masks(self, image_path: str) -> list:
+    def get_line_masks(self, image_path: str) -> tuple[list[NDArray], NDArray]:
         image_name = get_filename(image_path)
         img = self._read_image(image_path)
         img_padded, meta = resize_and_pad(image_name, img)
@@ -186,7 +186,9 @@ class YoloInference:
         results = self._run_prediction(tile_data)
 
         # TODO: handle cpu and gpu post_process_mode
-        return self._post_process_cpu(results, tile_data, img_padded)
+        merged_masks = self._post_process_cpu(results, tile_data, img_padded)
+
+        return merged_masks, img_padded
 
     def generate_debug_output(self, directory: str, out_dir: str, alpha: float = 0.4):
         images = get_directory_images(directory)
@@ -261,8 +263,12 @@ class YoloInference:
             results = self._run_prediction(tile_data)
 
             merged_masks = self._post_process_cpu(results, tile_data, img_padded)
-            contours = [mask_to_contours(x, optimize=False) for x in merged_masks]
+            
+            contours = [mask_to_contours(x, optimize=True) for x in merged_masks]
+            
             flat_contours = [c for line in contours for c in line]
+            flat_contours = [contour_to_original_space(x, meta) for x in flat_contours]
+            flat_contours = [x.astype(np.int32) for x in flat_contours]
 
             if len(flat_contours) == 0:
                 print(f"Warning, no contours in: {image_name}")

@@ -76,9 +76,9 @@ def create_dir(dir_path: str) -> None:
 
 
 def show_image(
-    image: NDArray, cmap: str = "", axis="off", fig_x: int = 8, fix_y: int = 8
+    image: NDArray, cmap: str = "", axis="off", fig_x: int = 8, fig_y: int = 8
 ) -> None:
-    plt.figure(figsize=(fig_x, fix_y))
+    plt.figure(figsize=(fig_x, fig_y))
     plt.axis(axis)
 
     if cmap != "":
