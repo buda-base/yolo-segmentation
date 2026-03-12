@@ -10,8 +10,9 @@ from shapely.geometry import Polygon, box
 
 from shapely.geometry import MultiPolygon
 from shapely.geometry.base import BaseGeometry
-from YoloKit.Config import COLOR_DICT, PHOTI_CLASS_MAP
-from YoloKit.Data import TileData, ResizePadData
+
+from YoloKit.config import COLOR_DICT, PHOTI_CLASS_MAP
+from YoloKit.data import TileData, ResizePadData
 
 
 def tile_image(
@@ -52,6 +53,45 @@ def is_tile_empty(tile_mask: NDArray, min_white_ratio: float = 0.01) -> bool:
     white_ratio = np.count_nonzero(white) / white.size
 
     return bool(white_ratio < min_white_ratio)
+
+def resize_to_height(image: NDArray, target_height: int) -> tuple[NDArray, float]:
+    """
+    Resize image to a specific height while maintaining aspect ratio.
+
+    Args:
+        image: Input image array
+        target_height: Desired height in pixels
+
+    Returns:
+        Tuple of (resized_image, scale_ratio)
+    """
+    scale_ratio = target_height / image.shape[0]
+    image = cv2.resize(
+        image,
+        (int(image.shape[1] * scale_ratio), target_height),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    return image, scale_ratio
+
+
+def resize_to_width(image: NDArray, target_width: int = 2048) -> tuple[NDArray, float]:
+    """
+    Resize image to a specific width while maintaining aspect ratio.
+
+    Args:
+        image: Input image array
+        target_width: Desired width in pixels (default: 2048)
+
+    Returns:
+        Tuple of (resized_image, scale_ratio)
+    """
+    scale_ratio = target_width / image.shape[1]
+    image = cv2.resize(
+        image,
+        (target_width, int(image.shape[0] * scale_ratio)),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    return image, scale_ratio
 
 
 def resize_and_pad(

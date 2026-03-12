@@ -6,7 +6,7 @@ from abc import abstractmethod
 from numpy.typing import NDArray
 from xml.dom import minidom
 from YoloKit.Utils import get_utc_time
-from YoloKit.Data import BBox
+from YoloKit.data import BBox
 
 class Exporter:
     """

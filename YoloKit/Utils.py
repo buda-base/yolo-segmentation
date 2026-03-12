@@ -11,17 +11,20 @@ import pyarrow.parquet as pq
 import random
 import shutil
 import yaml
-
+import xml.etree.ElementTree as ET
 
 from dataclasses import asdict
 from datetime import datetime
+
 from glob import glob
 from natsort import natsorted
 from itertools import chain
 from numpy.typing import NDArray
 from pathlib import Path
 from uuid import uuid1
-from YoloKit.Data import InstanceRecord
+import xml.etree.ElementTree as ET
+
+from YoloKit.data import InstanceRecord
 
 
 def get_utc_time():
@@ -236,6 +239,90 @@ def draw_polygons_only(
 
     return overlay
 
+
+def draw_yolo_bboxes(
+    image_path: str,
+    label_path: str,
+    class_map: dict
+):
+    """
+    Visualize YOLO bounding boxes on an image.
+
+    YOLO format:
+        class cx cy w h   (normalized)
+    """
+
+    img = cv2.imread(image_path)
+    if img is None:
+        raise RuntimeError(f"Could not load image: {image_path}")
+
+    H, W = img.shape[:2]
+
+    if not Path(label_path).exists():
+        print("No label file found.")
+        return img
+
+    with open(label_path, "r") as f:
+        lines = f.readlines()
+
+    for line in lines:
+        parts = line.strip().split()
+        if len(parts) != 5:
+            continue
+
+        cls = int(parts[0])
+        cx, cy, w, h = map(float, parts[1:])
+
+        # --- YOLO normalized -> pixel coords ---
+        bw = w * W
+        bh = h * H
+
+        px = cx * W
+        py = cy * H
+
+        x1 = int(px - bw / 2)
+        y1 = int(py - bh / 2)
+        x2 = int(px + bw / 2)
+        y2 = int(py + bh / 2)
+
+        # clamp for safety
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(W - 1, x2)
+        y2 = min(H - 1, y2)
+
+        # color per class
+        color = (
+            (0, 255, 0) if cls == 1 else
+            (255, 0, 0) if cls == 0 else
+            (0, 0, 255)
+        )
+
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+
+        label = class_map.get(cls, str(cls))
+        cv2.putText(
+            img,
+            label,
+            (x1, max(0, y1 - 5)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+
+    return img
+
+def draw_global_boxes(img: NDArray, boxes: list, classes: list):
+    for box, cls in zip(boxes, classes):
+        x1, y1, x2, y2 = map(int, box)
+
+        color = (0,255,0) if cls == 1 else (255,0,0)
+
+        cv2.rectangle(img, (x1,y1), (x2,y2), color, 2)
+
+    return img
 
 def show_prediction_overlay(results, fig_x: int = 12, fig_y: int = 8):
     img = results[0].orig_img.copy()

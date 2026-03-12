@@ -187,10 +187,10 @@ Models
 Testing.ipynb
 
 # exclude pre-trained model from git
-yolo11n-seg.pt 
-yolo11m-seg.pt
-yolo11n.pt
+*.pt
 
 # yolo checkpoint dir
 runs
+
+# macos
 .DS_Store
