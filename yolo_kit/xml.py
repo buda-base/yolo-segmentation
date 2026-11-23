@@ -1,25 +1,22 @@
-import cv2
-from datetime import datetime
 import json
-import numpy as np
 import xml.etree.ElementTree as ET
-
-
-from numpy.typing import NDArray
+from datetime import datetime
 from pathlib import Path
+
+import cv2
 from shapely.geometry import Polygon
 
-from YoloKit.utils import get_filename
-from YoloKit.yolo import bbox_to_yolo, polygon_to_bbox
-from YoloKit.config import COLOR_DICT, SEMANTIC_TEXTREGION_MAP
-from YoloKit.image import (
-    resize_and_pad,
-    scale_polygons,
+from pagexml import parse_points as parse_points
+from yolo_kit.config import COLOR_DICT, SEMANTIC_TEXTREGION_MAP
+from yolo_kit.image import (
     instances_to_color_mask,
     instances_to_mask,
+    resize_and_pad,
+    scale_polygons,
     tile_image_and_labels,
 )
-
+from yolo_kit.utils import get_filename
+from yolo_kit.yolo import bbox_to_yolo, polygon_to_bbox
 
 PAGE_NS = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15"
 ET.register_namespace("", PAGE_NS)
@@ -44,16 +41,6 @@ def is_pagexml_done(xml_path: str) -> bool:
             return status == "DONE"
 
     return False
-
-
-def parse_points(points_str: str) -> list[tuple[float, float]]:
-    pts = []
-
-    for p in points_str.split():
-        x, y = p.split(",")
-        pts.append((float(x), float(y)))
-
-    return pts
 
 
 def yolo_to_bbox(box, width, height):
@@ -111,7 +98,7 @@ def load_pagexml_instances(xml_path: str) -> list[tuple[str, Polygon]]:
             continue
         pts = parse_points(coords_el.attrib["points"])
 
-        if pts.shape[0] < 3:
+        if len(pts) < 3:
             continue
         poly = Polygon(pts)
 
@@ -251,7 +238,6 @@ def parse_pagexml_to_yolo_bboxes(xml_path: str, class_map: dict):
     results = []
 
     for region in root.findall(".//pc:TextRegion", ns):
-
         region_type = region.attrib.get("type", None)
         if region_type not in class_map:
             continue
@@ -284,7 +270,6 @@ def parse_pagexml(xml_path, class_map: dict):
     boxes = []
 
     for region in root.findall(".//pc:TextRegion", ns):
-
         region_type = region.attrib.get("type")
         if region_type not in class_map:
             continue
@@ -338,7 +323,6 @@ def create_pagexml(image_name, width, height, boxes, class_names):
     )
 
     for i, box in enumerate(boxes):
-
         class_id = box[0]
         label = class_names[str(class_id)]
 
@@ -378,7 +362,6 @@ def convert_ultralytics_to_pagexml(
     class_names = None
 
     with open(ndjson_path, "r", encoding="utf-8") as f:
-
         for line in f:
             record = json.loads(line)
 

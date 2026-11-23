@@ -1,20 +1,22 @@
 import os
+import random
+from collections.abc import Sequence
+from typing import Any
+
 import cv2
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import random
-import torch
-
 from numpy.typing import NDArray
 from tqdm import tqdm
-from typing import Any, Sequence
 from ultralytics import YOLO
-from YoloKit.Processing.image import (
+
+from yolo_kit.data import TileData
+from yolo_kit.exporter import PageXMLExporter
+from yolo_kit.image import (
     cluster_lines,
     collect_global_line_masks,
-    collect_global_line_masks_gpu,
     contour_to_original_space,
     extract_line_images,
     mask_to_contour,
@@ -23,19 +25,7 @@ from YoloKit.Processing.image import (
     resize_and_pad,
     tile_image,
 )
-from YoloKit.Utils import create_dir, get_directory_images, get_filename
-from YoloKit.Data import TileData
-from YoloKit.exporter import PageXMLExporter
-
-line_parquet_scheme = {
-    "image_name": str,
-    "line_id": int,
-    "contour_x": list[float],
-    "contour_y": list[float],
-    "bbox": list[float],  # [x_min, y_min, x_max, y_max]
-    "area": float,
-    "n_points": int,
-}
+from yolo_kit.utils import create_dir, get_directory_images, get_filename
 
 
 class YoloInference:
@@ -50,11 +40,6 @@ class YoloInference:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         return img
-    
-    def _has_results(self, results) -> bool:
-        return (
-            results is not None and len(results) > 0
-        )  # revise this to check for actual mask objects
 
     def _post_process_cpu(
         self, results: Sequence[Any], tile_data: list[TileData], image: NDArray
@@ -63,39 +48,22 @@ class YoloInference:
             results, tile_data, page_shape=image.shape, class_name="line"
         )
 
-        if y_centers_raw is None or len(y_centers_raw) == 0:
+        if y_centers_raw is None:
             return []
 
         order = np.argsort(y_centers_raw)
         global_masks = global_masks[order]
         y_centers_raw = y_centers_raw[order]
 
-        if len(y_centers_raw) == 0:
-            return []
-
         clusters = cluster_lines(y_centers_raw, dup_eps=12, spacing_factor=0.5)
-        return merge_line_masks(global_masks, clusters)
-
-    def _post_process_gpu(
-        self, results: tuple, tile_data: list[TileData], image: torch.Tensor
-    ):
-        global_masks, y_centers_raw = collect_global_line_masks_gpu(
-            results, tile_data, page_shape=image.shape, class_name="line"
-        )
-        order = torch.argsort(y_centers_raw)
-        global_masks = global_masks[order]
-        y_centers_raw = y_centers_raw[order]
-
-        if len(y_centers_raw) == 0:
-            return []
+        return [mask for mask in merge_line_masks(global_masks, clusters) if mask.any()]
 
     def _run_prediction(self, tile_data: list[TileData]) -> list:
-        img_tiles = [t.img for t in tile_data]
-        return self.model(img_tiles, verbose=False)
+        # Ultralytics expects BGR for NumPy inputs and can return masks in tile pixels.
+        img_tiles = [cv2.cvtColor(tile.img, cv2.COLOR_RGB2BGR) for tile in tile_data]
+        return self.model(img_tiles, retina_masks=True, verbose=False)
 
-    def _prediction_to_parquet(
-        self, image_name: str, image_path: str, post_process_mode: str = "cpu"
-    ):
+    def _prediction_to_parquet(self, image_name: str, image_path: str):
         img = self._read_image(image_path)
         img_padded, meta = resize_and_pad(image_name, img)
 
@@ -105,12 +73,6 @@ class YoloInference:
         merged_masks = self._post_process_cpu(results, tile_data, img_padded)
 
         records: list[dict] = []
-
-        if len(merged_masks) == 0:
-            return records
-
-        if merged_masks is None:
-            return records
 
         for i, line_mask in enumerate(merged_masks):
             contour_padded = mask_to_contour(line_mask)
@@ -137,22 +99,16 @@ class YoloInference:
 
         return records
 
-    """
-    Public interface to:
-    1) generate ocr_lines based on an image path. This should be called from a loop in the OCRPipeline class
-    2) just generate parquet data from an input directory
-    3) generate preview masks, mostly useful to run debug passes on various directories
-    """
-
     def get_ocr_lines(self, image_path: str, post_process_mode: str = "cpu"):
+        if post_process_mode != "cpu":
+            raise ValueError("YOLO line mask post-processing supports only CPU mode.")
         image_name = get_filename(image_path)
         img = self._read_image(image_path)
-        img_padded, meta = resize_and_pad(image_name, img)
+        img_padded, _ = resize_and_pad(image_name, img)
 
         tile_data = tile_image(img_padded, overlap=0.2)
         results = self._run_prediction(tile_data)
 
-        # TODO: handle cpu and gpu post_process_mode
         merged_masks = self._post_process_cpu(results, tile_data, img_padded)
 
         if len(merged_masks) == 0:
@@ -180,12 +136,11 @@ class YoloInference:
     def get_line_masks(self, image_path: str) -> tuple[list[NDArray], NDArray]:
         image_name = get_filename(image_path)
         img = self._read_image(image_path)
-        img_padded, meta = resize_and_pad(image_name, img)
+        img_padded, _ = resize_and_pad(image_name, img)
 
         tile_data = tile_image(img_padded, overlap=0.2)
         results = self._run_prediction(tile_data)
 
-        # TODO: handle cpu and gpu post_process_mode
         merged_masks = self._post_process_cpu(results, tile_data, img_padded)
 
         return merged_masks, img_padded
@@ -213,7 +168,6 @@ class YoloInference:
             tile_data = tile_image(img_padded, overlap=0.2)
             results = self._run_prediction(tile_data)
 
-            # TODO: handle cpu and gpu post_process_mode
             merged_masks = self._post_process_cpu(results, tile_data, img_padded)
 
             if len(merged_masks) == 0:
@@ -231,7 +185,7 @@ class YoloInference:
                     preview_mask,
                     [contour_orig],
                     -1,
-                    color=cached_colors[idx],
+                    color=cached_colors[idx % len(cached_colors)],
                     thickness=-1,
                 )
 
@@ -240,7 +194,6 @@ class YoloInference:
             out_file = f"{out_dir}/{image_name}_prev.jpg"
             cv2.imwrite(out_file, preview_img)
 
-        
     def generate_page_xmL(self, directory: str, out_dir: str):
 
         if not os.path.isdir(out_dir):
@@ -263,9 +216,9 @@ class YoloInference:
             results = self._run_prediction(tile_data)
 
             merged_masks = self._post_process_cpu(results, tile_data, img_padded)
-            
+
             contours = [mask_to_contours(x, optimize=True) for x in merged_masks]
-            
+
             flat_contours = [c for line in contours for c in line]
             flat_contours = [contour_to_original_space(x, meta) for x in flat_contours]
             flat_contours = [x.astype(np.int32) for x in flat_contours]
@@ -273,5 +226,10 @@ class YoloInference:
             if len(flat_contours) == 0:
                 print(f"Warning, no contours in: {image_name}")
                 continue
-            
-            page_xml_exporter.export_lines(img, image_name, flat_contours)
+
+            page_xml_exporter.export_lines(
+                img,
+                image_name,
+                flat_contours,
+                image_filename=os.path.basename(image_path),
+            )

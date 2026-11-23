@@ -1,12 +1,16 @@
-import cv2
 import logging
 import xml.etree.ElementTree as etree
-
 from abc import abstractmethod
-from numpy.typing import NDArray
 from xml.dom import minidom
-from YoloKit.Utils import get_utc_time
-from YoloKit.data import BBox
+
+import cv2
+from numpy.typing import NDArray
+
+from yolo_kit.data import BBox
+from yolo_kit.utils import get_utc_time
+
+logger = logging.getLogger(__name__)
+
 
 class Exporter:
     """
@@ -24,43 +28,34 @@ class Exporter:
             output_dir: Directory path where exported files will be saved
         """
         self.output_dir = output_dir
-        logging.info("Init Exporter")
+        logger.info("Init Exporter")
 
     @classmethod
     def __subclasshook__(cls, subclass):
-        return hasattr(subclass, "export_lines") and callable(subclass.export_lines) or NotImplemented
-    
+        return (
+            hasattr(subclass, "export_lines")
+            and callable(subclass.export_lines)
+            or NotImplemented
+        )
 
     @abstractmethod
-    def export_lines(
-        self,
-        image: NDArray,
-        image_name: str,
-        lines: list[NDArray]
-    ):
+    def export_lines(self, image: NDArray, image_name: str, lines: list[NDArray]):
         """Exports text lines and line informations"""
         raise NotImplementedError
-
 
     def get_bbox(self, contour: NDArray) -> BBox:
         x, y, w, h = cv2.boundingRect(contour)
 
-        if x == 0 or y == 0 or w == 0 or h == 0:
-            print("warning: zero bbox")
         return BBox(x, y, w, h)
-    
+
     def get_text_bbox(self, lines: list[NDArray]):
         all_bboxes = [self.get_bbox(x) for x in lines]
         min_x = min(a.x for a in all_bboxes)
         min_y = min(a.y for a in all_bboxes)
 
-        max_w = max(a.w for a in all_bboxes)
-        max_h = all_bboxes[-1].y + all_bboxes[-1].h
-
-        bbox = BBox(min_x, min_y, max_w, max_h)
-
-        return bbox
-
+        max_x = max(a.x + a.w - 1 for a in all_bboxes)
+        max_y = max(a.y + a.h - 1 for a in all_bboxes)
+        return BBox(min_x, min_y, max_x - min_x, max_y - min_y)
 
     @staticmethod
     def get_text_points(contour: NDArray) -> str:
@@ -82,7 +77,6 @@ class Exporter:
             f"{bbox.x + bbox.w},{bbox.y + bbox.h} {bbox.x},{bbox.y + bbox.h}"
         )
         return points
-    
 
 
 class PageXMLExporter(Exporter):
@@ -101,7 +95,7 @@ class PageXMLExporter(Exporter):
             output_dir: Directory path for exported XML files
         """
         super().__init__(output_dir)
-        logging.info("Init XML Exporter")
+        logger.info("Init XML Exporter")
 
     def get_text_line_block(self, coordinate, index: int, unicode_text: str):
         """
@@ -115,15 +109,13 @@ class PageXMLExporter(Exporter):
         Returns:
             XML element representing the text line
         """
-        text_line = etree.Element("Textline", id="", custom=f"readingOrder {{index:{index};}}")
         text_line = etree.Element("TextLine")
-        text_line_coords = coordinate
 
-        text_line.attrib["id"] = f"line_9874_{str(index)}"
-        text_line.attrib["custom"] = f"readingOrder {{index: {str(index)};}}"
+        text_line.attrib["id"] = f"line_9874_{index!s}"
+        text_line.attrib["custom"] = f"readingOrder {{index: {index!s};}}"
 
         coords_points = etree.SubElement(text_line, "Coords")
-        coords_points.attrib["points"] = text_line_coords
+        coords_points.attrib["points"] = coordinate
 
         text_equiv = etree.SubElement(text_line, "TextEquiv")
         unicode_field = etree.SubElement(text_equiv, "Unicode")
@@ -132,11 +124,7 @@ class PageXMLExporter(Exporter):
         return text_line
 
     def build_xml_document(
-        self,
-        image: NDArray,
-        image_name: str,
-        text_bbox: str,
-        lines: list[str]
+        self, image: NDArray, image_name: str, text_bbox: str, lines: list[str]
     ):
         """
         Build complete PageXML document structure.
@@ -152,7 +140,9 @@ class PageXMLExporter(Exporter):
             Formatted XML document string
         """
         root = etree.Element("PcGts")
-        root.attrib["xmlns"] = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15"
+        root.attrib["xmlns"] = (
+            "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15"
+        )
         root.attrib["xmlns:xsi"] = "http://www.w3.org/2001/XMLSchema-instance"
         root.attrib["xsi:schemaLocation"] = (
             "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 "
@@ -164,6 +154,7 @@ class PageXMLExporter(Exporter):
         creator.text = "Transkribus"
         created = etree.SubElement(metadata, "Created")
         created.text = get_utc_time()
+        etree.SubElement(metadata, "LastChange").text = created.text
 
         page = etree.SubElement(root, "Page")
         page.attrib["imageFilename"] = image_name
@@ -172,10 +163,10 @@ class PageXMLExporter(Exporter):
 
         reading_order = etree.SubElement(page, "ReadingOrder")
         ordered_group = etree.SubElement(reading_order, "OrderedGroup")
-        ordered_group.attrib["id"] = f"1234_{0}"
+        ordered_group.attrib["id"] = "reading_order"
         ordered_group.attrib["caption"] = "Regions reading order"
 
-        region_ref_indexed = etree.SubElement(reading_order, "RegionRefIndexed")
+        region_ref_indexed = etree.SubElement(ordered_group, "RegionRefIndexed")
         region_ref_indexed.attrib["index"] = "0"
         region_ref = "region_main"
         region_ref_indexed.attrib["regionRef"] = region_ref
@@ -202,11 +193,15 @@ class PageXMLExporter(Exporter):
         image: NDArray,
         image_name: str,
         lines: list[NDArray],
-        use_bbox: bool = False
+        use_bbox: bool = False,
+        *,
+        image_filename: str | None = None,
     ):
 
         if use_bbox:
-            plain_lines = [self.get_bbox(x) for x in lines]
+            plain_lines = [
+                self.get_bbox_points(self.get_text_bbox([line])) for line in lines
+            ]
         else:
             plain_lines = [self.get_text_points(x) for x in lines]
 
@@ -214,10 +209,7 @@ class PageXMLExporter(Exporter):
         plain_box = self.get_bbox_points(text_bbox)
 
         xml_doc = self.build_xml_document(
-            image,
-            image_name,
-            text_bbox=plain_box,
-            lines=plain_lines
+            image, image_filename or image_name, text_bbox=plain_box, lines=plain_lines
         )
 
         out_file = f"{self.output_dir}/{image_name}.xml"

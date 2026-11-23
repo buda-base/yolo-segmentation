@@ -1,30 +1,24 @@
 import os
-from typing import Mapping
-import cv2
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-import pyarrow as pa
-import pyarrow.parquet as pq
-
 import random
 import shutil
-import yaml
-import xml.etree.ElementTree as ET
-
+from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import datetime
-
 from glob import glob
-from natsort import natsorted
 from itertools import chain
-from numpy.typing import NDArray
 from pathlib import Path
 from uuid import uuid1
-import xml.etree.ElementTree as ET
 
-from YoloKit.data import InstanceRecord
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
+import yaml
+from natsort import natsorted
+from numpy.typing import NDArray
+
+from yolo_kit.data import InstanceRecord
 
 
 def get_utc_time():
@@ -43,15 +37,14 @@ def get_utc_time():
 def generate_guid(clock_seq: int):
     """
     Generate a UUID with a specific clock sequence.
-    
+
     Args:
         clock_seq: Clock sequence value for UUID generation
-        
+
     Returns:
         Generated UUID
     """
     return uuid1(clock_seq=clock_seq)
-
 
 
 def get_filename(file_path: str) -> str:
@@ -74,7 +67,7 @@ def create_dir(dir_path: str) -> None:
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
             print(f"Created output directory: {dir_path}")
-    except BaseException as e:
+    except (OSError, ValueError) as e:
         print(f"Failed to create directory: {e}")
 
 
@@ -215,7 +208,7 @@ def draw_yolo_seg_labels(
             for i in range(0, len(coords), 2):
                 x = coords[i] * W
                 y = coords[i + 1] * H
-                pts.append([int(round(x)), int(round(y))])
+                pts.append([round(x), round(y)])
 
             np_pts = np.asarray(pts, dtype=np.int32)
             np_pts = np_pts.reshape((-1, 1, 2))  # OpenCV format
@@ -240,11 +233,7 @@ def draw_polygons_only(
     return overlay
 
 
-def draw_yolo_bboxes(
-    image_path: str,
-    label_path: str,
-    class_map: dict
-):
+def draw_yolo_bboxes(image_path: str, label_path: str, class_map: dict):
     """
     Visualize YOLO bounding boxes on an image.
 
@@ -292,11 +281,7 @@ def draw_yolo_bboxes(
         y2 = min(H - 1, y2)
 
         # color per class
-        color = (
-            (0, 255, 0) if cls == 1 else
-            (255, 0, 0) if cls == 0 else
-            (0, 0, 255)
-        )
+        color = (0, 255, 0) if cls == 1 else (255, 0, 0) if cls == 0 else (0, 0, 255)
 
         cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
 
@@ -314,15 +299,17 @@ def draw_yolo_bboxes(
 
     return img
 
+
 def draw_global_boxes(img: NDArray, boxes: list, classes: list):
     for box, cls in zip(boxes, classes):
         x1, y1, x2, y2 = map(int, box)
 
-        color = (0,255,0) if cls == 1 else (255,0,0)
+        color = (0, 255, 0) if cls == 1 else (255, 0, 0)
 
-        cv2.rectangle(img, (x1,y1), (x2,y2), color, 2)
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
 
     return img
+
 
 def show_prediction_overlay(results, fig_x: int = 12, fig_y: int = 8):
     img = results[0].orig_img.copy()

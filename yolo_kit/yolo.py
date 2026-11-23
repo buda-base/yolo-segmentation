@@ -58,8 +58,7 @@ def yolo_to_bbox(
     return (x0, y0, x1, y1)
 
 
-
-def polygon_to_bbox(points:list[tuple[float, float]]):
+def polygon_to_bbox(points: list[tuple[float, float]]):
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
 
@@ -97,16 +96,17 @@ def generate_tiles(img_w: int, img_h: int, tile_size=640):
 
     for y0 in range(0, img_h, tile_size):
         for x0 in range(0, img_w, tile_size):
-
             x1 = min(x0 + tile_size, img_w)
             y1 = min(y0 + tile_size, img_h)
 
-            tiles.append({
-                "x0": x0,
-                "y0": y0,
-                "x1": x1,
-                "y1": y1,
-            })
+            tiles.append(
+                {
+                    "x0": x0,
+                    "y0": y0,
+                    "x1": x1,
+                    "y1": y1,
+                }
+            )
 
     return tiles
 
@@ -165,7 +165,6 @@ def tile_yolo_boxes(
     tiled_results = []
 
     for tile in tiles:
-
         tile_bbox = (
             tile["x0"],
             tile["y0"],
@@ -176,7 +175,6 @@ def tile_yolo_boxes(
         tile_labels = []
 
         for class_id, bbox in full_boxes:
-
             inter = intersect_bbox(bbox, tile_bbox)
             if inter is None:
                 continue
@@ -227,5 +225,6 @@ def non_max_suppression(boxes, scores, iou_thresh=0.5):
 
 def save_yolo_labels(label_path: str, boxes):
     with open(label_path, "w", encoding="utf-8") as f:
-        for cls, cx, cy, w, h in boxes:
-            f.write(f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
+        f.writelines(
+            f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n" for cls, cx, cy, w, h in boxes
+        )

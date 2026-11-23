@@ -1,24 +1,16 @@
+LINE_CLASS_MAP = {"line": 0}
 
-LINE_CLASS_MAP = {
-    "line" : 0
-}
-
-PHOTI_CLASS_MAP = {
-    "line": 0,
-    "image": 1,
-    "caption": 2,
-    "margin": 3
-}
+PHOTI_CLASS_MAP = {"line": 0, "image": 1, "caption": 2, "margin": 3}
 
 
 MODERN_CLASS_MAP = {
-    "line" : 0,
-    "image" : 1,
+    "line": 0,
+    "image": 1,
     "header": 2,
     "footer": 3,
 }
 
-# adapted class numbers to HEADER_FOOTER_MAP_V2 
+# adapted class numbers to HEADER_FOOTER_MAP_V2
 HEADER_FOOTER_MAP = {
     "header": 0,
     "paragraph": 4,
@@ -31,7 +23,7 @@ HEADER_FOOTER_MAP_ULTRALYTICS = {
     "footnote": 2,
     "page_number": 3,
     "Text area": 4,
-    "image": 5
+    "image": 5,
 }
 
 SEMANTIC_TEXTREGION_MAP = {

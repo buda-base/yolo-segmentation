@@ -1,7 +1,8 @@
 from dataclasses import dataclass
+from uuid import UUID
+
 from numpy.typing import NDArray
 from shapely.geometry import Polygon
-from uuid import UUID
 
 
 @dataclass
@@ -13,6 +14,7 @@ class BBox:
     w: int
     h: int
 
+
 @dataclass
 class Line:
     """Detected text line with contour and bounding box information."""
@@ -21,6 +23,7 @@ class Line:
     contour: NDArray
     bbox: BBox
     center: tuple[int, int]
+
 
 @dataclass
 class ResizePadData:

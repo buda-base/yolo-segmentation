@@ -1,18 +1,15 @@
-import cv2
-import os
 import math
-import torch
+import os
+from pathlib import Path
 
+import cv2
 import numpy as np
 from numpy.typing import NDArray
-from pathlib import Path
-from shapely.geometry import Polygon, box
-
-from shapely.geometry import MultiPolygon
+from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.geometry.base import BaseGeometry
 
-from YoloKit.config import COLOR_DICT, PHOTI_CLASS_MAP
-from YoloKit.data import TileData, ResizePadData
+from yolo_kit.config import COLOR_DICT, PHOTI_CLASS_MAP
+from yolo_kit.data import ResizePadData, TileData
 
 
 def tile_image(
@@ -23,17 +20,19 @@ def tile_image(
     stride = max(1, int(tile_size * (1.0 - overlap)))
     H, W = img.shape[:2]
 
-    y_range = int(H - tile_size + 1)
-    x_range = int(W - tile_size + 1)
+    last_y = H - tile_size
+    last_x = W - tile_size
+    if min(last_y, last_x) < 0:
+        raise ValueError("Image must be padded to at least the tile size.")
 
-    assert y_range > 0 and x_range > 0
-    assert stride > 0, "overlap too high -> stride becomes 0"
+    row_offsets = [*range(0, last_y, stride), last_y]
+    col_offsets = [*range(0, last_x, stride), last_x]
 
     tile_id = 0
     tiles: list[TileData] = []
 
-    for y0 in range(0, y_range, stride):
-        for x0 in range(0, x_range, stride):
+    for y0 in row_offsets:
+        for x0 in col_offsets:
             tiles.append(
                 TileData(
                     tile_id,
@@ -53,6 +52,7 @@ def is_tile_empty(tile_mask: NDArray, min_white_ratio: float = 0.01) -> bool:
     white_ratio = np.count_nonzero(white) / white.size
 
     return bool(white_ratio < min_white_ratio)
+
 
 def resize_to_height(image: NDArray, target_height: int) -> tuple[NDArray, float]:
     """
@@ -108,7 +108,7 @@ def resize_and_pad(
     H, W = img.shape[:2]
 
     # vertical overlap in pixels (matches your tiling overlap)
-    patch_vertical_overlap_px = int(round(tile_size * overlap))
+    patch_vertical_overlap_px = round(tile_size * overlap)
 
     s = compute_downscale(
         w=W,
@@ -121,11 +121,11 @@ def resize_and_pad(
         max_patch_rows=max_patch_rows,
     )
 
-    new_w = int(round(W * s))
-    new_h = int(round(H * s))
+    new_w = round(W * s)
+    new_h = round(H * s)
 
     if debug:
-        print(f"Scale: s={s:.6f}  orig={W}x{H} → resized={new_w}x{new_h}")
+        print(f"Scale: s={s:.6f}  orig={W}x{H} â†’ resized={new_w}x{new_h}")
 
     img_resized = cv2.resize(
         img, (new_w, new_h), interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC
@@ -193,7 +193,6 @@ def tile_image_and_labels(
     tile_id = 0
     for y0 in range(0, y_range, stride):
         for x0 in range(0, x_range, stride):
-
             tile_img = img[y0 : y0 + tile_size, x0 : x0 + tile_size]
             tile_mask = mask[y0 : y0 + tile_size, x0 : x0 + tile_size]
 
@@ -306,18 +305,17 @@ def compute_downscale(
     # Boundaries: H = patch_size + k * stride_y
     # If scaled_h is in (boundary, boundary + threshold], snap down to boundary.
     # -----------------------------
-    if snap_extra_patch_row_threshold_px > 0:
-        if scaled_h > patch_size:
-            excess = scaled_h - patch_size
+    if snap_extra_patch_row_threshold_px > 0 and scaled_h > patch_size:
+        excess = scaled_h - patch_size
 
-            # k is the largest integer such that boundary(k) <= scaled_h
-            k = int(math.floor(excess / float(stride_y)))
-            boundary_h = patch_size + k * stride_y
+        # k is the largest integer such that boundary(k) <= scaled_h
+        k = math.floor(excess / float(stride_y))
+        boundary_h = patch_size + k * stride_y
 
-            extra_px = scaled_h - boundary_h
-            if 0.0 < extra_px <= float(snap_extra_patch_row_threshold_px):
-                scaled_h = boundary_h
-                s = scaled_h / float(h)
+        extra_px = scaled_h - boundary_h
+        if 0.0 < extra_px <= float(snap_extra_patch_row_threshold_px):
+            scaled_h = boundary_h
+            s = scaled_h / float(h)
 
     # -----------------------------
     # Step 4) Cap patch rows (soft cap)
@@ -339,7 +337,7 @@ def instances_to_mask(
     mask = np.zeros((height, width), dtype=np.uint8)
 
     for cid, poly in instances:
-        if include_class_ids is not None and cid not in include_class_ids.keys():
+        if include_class_ids is not None and cid not in include_class_ids:
             continue
         pts = np.array(poly.exterior.coords).astype(np.int32)
         cv2.fillPoly(mask, [pts], 255)
@@ -422,7 +420,7 @@ def mask_to_polygons(
 
 def masks_to_contours(merged_masks: list[NDArray]):
     """
-    merged_masks: list[H×W] or (M, H, W)
+    merged_masks: list[HÃ—W] or (M, H, W)
     returns: list[np.ndarray] contours (N_i, 2)
     """
     contours = []
@@ -430,11 +428,7 @@ def masks_to_contours(merged_masks: list[NDArray]):
     for mask in merged_masks:
         mask_u8 = (mask > 0).astype(np.uint8) * 255
 
-        cnts, _ = cv2.findContours(
-            mask_u8,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_NONE
-        )
+        cnts, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
         if len(cnts) == 0:
             continue
@@ -446,6 +440,7 @@ def masks_to_contours(merged_masks: list[NDArray]):
         contours.append(contour)
 
     return contours
+
 
 def tile_to_padded(poly, tile: TileData):
     return [(x + tile.x0, y + tile.y0) for x, y in poly]
@@ -503,6 +498,15 @@ def sort_by_y(global_masks, y_centers):
     return global_masks[order], y_centers[order]
 
 
+def _class_id(names: dict[int, str], class_name: str) -> int:
+    class_id = next((key for key, name in names.items() if name == class_name), None)
+    if class_id is None:
+        raise ValueError(
+            f"Model has no {class_name!r} class. Available classes: {names}"
+        )
+    return class_id
+
+
 def collect_global_line_masks(
     results, tile_data: list[TileData], page_shape, class_name="line"
 ):
@@ -512,16 +516,13 @@ def collect_global_line_masks(
     y_centers_list: list[NDArray] = []
 
     for res, tile in zip(results, tile_data):
-
         if res.masks is None:
             continue
 
         masks = res.masks.data.cpu().numpy()  # (N, h, w)
         boxes = res.boxes.xyxy.cpu().numpy()  # (N, 4)
         classes = res.boxes.cls.cpu().numpy()
-        names = res.names
-
-        line_id = [k for k, v in names.items() if v == class_name][0]
+        line_id = _class_id(res.names, class_name)
         idx = np.where(classes == line_id)[0]
 
         if len(idx) == 0:
@@ -551,56 +552,7 @@ def collect_global_line_masks(
     return global_masks, y_centers
 
 
-def collect_global_line_masks_gpu(
-    results, tile_data, page_shape, class_name="line", device="cuda"
-):
-    H_page, W_page = page_shape[:2]
-
-    global_masks = []
-    y_centers = []
-
-    for res, tile in zip(results, tile_data):
-
-        if res.masks is None:
-            continue
-
-        masks = res.masks.data
-        boxes = res.boxes.xyxy
-        classes = res.boxes.cls
-        names = res.names
-
-        line_id = [k for k, v in names.items() if v == class_name][0]
-        class_idx = (classes == line_id).nonzero(as_tuple=True)[0]
-
-        if class_idx.numel() == 0:
-            continue
-
-        masks = masks[class_idx]
-        boxes = boxes[class_idx]
-
-        y_center = (boxes[:, 1] + boxes[:, 3]) / 2 + tile.y0
-        y_centers.append(y_center)
-
-        M, h, w = masks.shape
-
-        tile_global = torch.zeros(
-            (M, H_page, W_page), dtype=torch.bool, device=masks.device
-        )
-
-        tile_global[:, tile.y0 : tile.y0 + h, tile.x0 : tile.x0 + w] = masks > 0.5
-
-        global_masks.append(tile_global)
-
-    if len(global_masks) == 0:
-        return None, None
-
-    global_masks = torch.cat(global_masks, dim=0)
-    y_centers = torch.cat(y_centers, dim=0)
-
-    return global_masks, y_centers
-
-
-def collapse_duplicates(y_centers, eps: int =  4):
+def collapse_duplicates(y_centers, eps: int = 4):
     """
     Collapses multiple detections of the same line into one.
     """
@@ -661,6 +613,7 @@ def merge_line_masks(global_masks, clusters) -> list[NDArray]:
 
     return merged
 
+
 def optimize_contour(contour, eps: float = 2.0):
     return cv2.approxPolyDP(contour, eps, True)
 
@@ -669,7 +622,7 @@ def mask_to_contour(line_mask: NDArray, optimize: bool = False, eps: float = 2.0
     cnts, _ = cv2.findContours(
         line_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
     )
-    
+
     if optimize:
         cnts = [optimize_contour(x, eps) for x in cnts]
 
@@ -679,9 +632,7 @@ def mask_to_contour(line_mask: NDArray, optimize: bool = False, eps: float = 2.0
 
 def mask_to_contours(line_mask: np.ndarray, optimize=False, eps=2.0):
     cnts, _ = cv2.findContours(
-        line_mask.astype(np.uint8),
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_NONE
+        line_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
     )
 
     if optimize:

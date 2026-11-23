@@ -183,6 +183,7 @@ cython_debug/
 
 # Custom
 Data
+/data/
 Models
 Testing.ipynb
 
